@@ -3,448 +3,384 @@
 
 import os
 import re
-import cv2
 import sys
-import json
-import urllib
-import datetime
-import requests
-import numpy as np
 from docx import Document
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+from GongZhongHao import GzhHandler
 from Ui_MainWindow import Ui_MainWindow
-from urllib.request import urlretrieve
-from PIL import ImageFont, ImageDraw, Image
+from Drawer import Drawer
+
+from enum import Enum
+class ErrorType(Enum):
+    NoError = 0
+    NoFile = 1
+    NoKeyWord = 2
+    NoCoverImg = 3
+    NoTemplate = 4
+    NoAccessToken = 5
+    NoCheckFormat = 6
+    FileFormatError = 7
+
+def DeleteNumber(text):
+    remove_chars = '[0-9’!"#$%&\'()*+,-./:;<=>?@，。?★、…【】《》？“”‘’！[\\]^_`{|}~]+'
+    return re.sub(remove_chars, '', text)    
 
 class BaiQue(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
-        self.setupUi(self)
-        self.InitClassMember()
-        self.ConnectWidgetToFun()
-    
-    def InitClassMember(self):
-        self.AppId = "wx38330ee81eefe3da"
-        self.AppSecret = "07b9b0ec8cab6746e208295616b80165"
-        self.AwardList = []
-        self.TitleList = []
-        self.AuthorList = []
-        self.ReviewsList = []
-        self.CommentList = []
-        self.ContentList = []
-        self.AddressList = []
+        AppId = "wx38330ee81eefe3da"
+        AppSecret = "07b9b0ec8cab6746e208295616b80165"
         self.File = ""
-        self.Theme = ""
-        self.Digest = ""
         self.Article = ""
-        self.FileName = ""
-        self.Category = ""
-        self.PrintText = ""
-        self.AccessToken = ""
-        self.PoemNum = 0
-        self.CurrentIndex = 0
+        self.Template = ""   
+        self.setupUi(self)
+        self.ResetClassMember()
+        self.gzh = GzhHandler(AppId, AppSecret)
+        self.ConnectWidgetToFun()
+        self.ShowTemplatePng()   
+        self.radioButton.setChecked(True)
+    
+    def ResetClassMember(self):
+        self.AwardList = []    #奖次列表
+        self.TitleList = []    #题目列表
+        self.AuthorList = []   #作者列表
+        self.CommentList = []  #注释列表
+        self.ContentList = []  #内容列表
+        self.AddressList = []  #地址列表
+        self.ReviewsList = []  #评语列表
+        self.ReviewerList = [] #评委列表      
+        self.textEdit_4.setText("评语的默认正则表达式为：..+评:.*|..+评：.*|【.+评】.*")
+    
+    @pyqtSlot(str)
+    def PreviewFinish(self, Article):
+        self.Article = Article
+        self.textEdit_4.setText("预览已生成，请点击preview.html查看！")
+        Year = str(self.spinBox_2.value())
+        Month = str(self.spinBox_3.value())
+        Quarter = self.comboBox_9.currentText()
+        Category = self.comboBox_8.currentText()    
+        title = "白雀奖 || 20"+Year+"年第"+Quarter+"季度"+Month+"月份"+Category+"部入围作品及点评"     
+        digest = "本期评委："
+        for Reviewer in self.ReviewerList:
+            digest += Reviewer.replace("评","")+"、"
+        digest += "本期共有"+str(len(self.TitleList))+"首作品入围。"
+        self.gzh.UploadArticle(title,"cover.jpg",digest,self.Article)
+    
+    @pyqtSlot(str)
+    def UploadFinish(self, Result):
+        self.textEdit_4.setText(Result)
+    
+    def ShowTemplatePng(self):
+        png_1 = QPixmap("个人专辑.png")
+        self.label_16.setPixmap(png_1)
+        png_2 = QPixmap("月度入围.png")
+        self.label_17.setPixmap(png_2)
+        png_3 = QPixmap("季度获奖.png")
+        self.label_18.setPixmap(png_3)
     
     def ConnectWidgetToFun(self):
         self.pushButton.clicked.connect(self.SelectFile)
         self.pushButton_2.clicked.connect(self.GenOneCertificate)
         self.pushButton_3.clicked.connect(self.GenAllCertificate)
-        self.pushButton_4.clicked.connect(self.CheckDocxFormat)
+        self.pushButton_4.clicked.connect(self.CheckDocxFormat_1)
         self.pushButton_5.clicked.connect(self.SelectFile)
-        self.pushButton_6.clicked.connect(self.CheckDocxFormat)
-        self.pushButton_7.clicked.connect(self.GenSelfMediaArticle)
+        self.pushButton_6.clicked.connect(self.CheckDocxFormat_2)
+        self.pushButton_7.clicked.connect(self.GenPreview)
         self.pushButton_8.clicked.connect(self.ClearOutputWindow)
         self.pushButton_9.clicked.connect(self.ClearOutputWindow)
+        self.gzh.signal_1.connect(self.PreviewFinish)
+        self.gzh.signal_2.connect(self.UploadFinish)
+        self.radioButton.toggled.connect(lambda:self.SetComboBoxList())
+        self.radioButton_2.toggled.connect(lambda:self.SetComboBoxList())
+        self.radioButton_3.toggled.connect(lambda:self.SetComboBoxList())
     
     def StackedWidgetSwitch(self):
         item = self.treeWidget.currentItem()
-        if item.text(0) == '一键生成奖状':
+        if item.text(0) == "一键生成奖状":
             self.stackedWidget.setCurrentIndex(0)
-            self.CurrentIndex = 0
-        else:
+        elif item.text(0) == "一键公众号文章":
             self.stackedWidget.setCurrentIndex(1)
-            self.CurrentIndex = 1
+        else:
+            pass
     
     def SelectFile(self):
-        self.File = ""
-        fname = QFileDialog.getOpenFileName(None, "选择获奖文件", "/", "*.docx")
+        fname = QFileDialog.getOpenFileName(None, "选择文档", "/", "*.docx")
         if fname[0]:
-            try:
-                self.File = fname[0]
-                if self.CurrentIndex == 0:
-                    self.textEdit_3.setText(self.File)
-                else:
-                    self.textEdit_4.setText(self.File)
-            except:
-                if self.CurrentIndex == 0:
-                    self.textEdit_3.setText("错误！")
-                else:
-                    self.textEdit_4.setText("错误！")
-    
-    def getAccessToken(self):
-        url = "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=%s&secret=%s" % (self.AppId, self.AppSecret)
-        result = json.loads(requests.post(url).text)
-        if "access_token" in result:
-            self.AccessToken = result["access_token"]
-            self.textEdit_4.setText("成功获取Access Token！")
-            return 1
-        else:
-            self.textEdit_4.setText(result["errmsg"])
-            return 0
-    
-    def uploadImage(self, ImagePath):
-        self.textEdit_4.setText("正在上传图片： " + ImagePath)
-        url = "https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=%s&type=image" % self.AccessToken
-        files = {'media': open('{}'.format(ImagePath), 'rb')}
-        response = requests.post(url, files=files).text
-        ImgId = json.loads(response)["media_id"]
-        ImgUrl = json.loads(response)["url"]
-        return ImgId, ImgUrl
-    
-    def getImageByName(self, name, count, offset=0):
-        url = "https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=%s" % self.AccessToken
-        data = {"type":"image", "offset":offset, "count":count}
-        response = requests.post(url, json.dumps(data)).text
-        ImgJsonList = json.loads(response)["item"]
-        for img in ImgJsonList:
-            if img["name"] == name:
-                return img["media_id"], img["url"]
-    
-    def getImageListByCount(self, count, offset=0):
-        ImgIdList = []
-        ImgUrlList = []
-        url = "https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=%s" % self.AccessToken
-        data = {"type":"image", "offset":offset, "count":count}
-        response = requests.post(url, json.dumps(data)).text
-        ImgJsonList = json.loads(response)["item"]
-        for img in ImgJsonList:
-            ImgIdList.append(img["media_id"])
-            ImgUrlList.append(img["url"])
-        return ImgIdList, ImgUrlList
-    
-    def getImgFromBaidu(self, keyword, num):
-        index = 0
-        PicPath = []
-        PicSize = 100000 # Only select picture which size is more than 100KB
-        headers = {
-            'Referer': 'https://image.baidu.com/search/index?tn=baiduimage',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36 Edg/83.0.478.50',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9'
-        }
-        BaseUrl = 'http://image.baidu.com/search/flip?tn=baiduimage&ipn=r&ct=201326592&cl=2&lm=-1&st=-1&fm=result&fr=&sf=1&fmq=1497491098685_R&pv=&ic=0&nc=1&z=&se=1&showtab=0&fb=0&width=&height=&face=0&istype=2&ie=utf-8&ctd=1497491098685%5E00_1519X735&word=' + keyword
-        result = requests.get(BaseUrl,headers=headers).content.decode('utf-8')
-        PicUrlList = re.findall('"objURL":"(.*?)",', result, re.S)
-        if not os.path.exists('图片'):
-            os.mkdir('图片') 
-        for url in PicUrlList:
-            if index < num:
-                PicName = '图片/'+str(index)+'.jpg'
-                urlretrieve(url, PicName)
-                if os.path.getsize(PicName) > PicSize:
-                    PicPath.append(PicName)
-                    index += 1
-        return PicPath
-    
-    def GenHtmlFile(self, keyword, TemplateNo):
-        PicUrlList = []
-        ContentChildList = []
-        ReviewsChildList = []
-        
-        #获取Digest PageFoot ReviewLabel三张图片的url
-        #id, DigestUrl = self.uploadImage(Digest)
-        id, PageFootUrl = self.uploadImage('template/%s/PageFoot.jpg' % TemplateNo)
-        id, ReviewLabelUrl = self.uploadImage('template/%s/Reviews.jpg' % TemplateNo)
-        
-        #从百度图片中获取若干图片并上传至公众号       
-        PicList = self.getImgFromBaidu(keyword, int(self.PoemNum/4))		
-        for pic in PicList:
-            id, url = self.uploadImage(pic)
-            PicUrlList.append(url)
-        
-        #导入css样式（tbd）
-        #f = open('template/%s/style.css' % TemplateNo, 'r')       
-        if "诗" in self.Theme:
-            Alignment = "center"
-        else:
-            Alignment = "Left"
-        
-        #开始生成公众号文章html代码
-        #self.Article += f.read() % Alignment
-        self.Article += '<section style="padding:10px; background-color:rgb(246, 242, 238)">'
-        for i in range(self.PoemNum):
-            ContentChildList = re.split(r'-', self.ContentList[i])
-            ReviewsChildList = re.split(r'-', self.ReviewsList[i])
-            self.Article += '<br><p style="text-align:center; margin-bottom:10px"><span style="font-size:16px; color:rgb(38, 46, 56)"><strong>'
-            self.Article += self.TitleList[i]
-            self.Article += '</strong></span></p>'
-            for j in range(len(ContentChildList)):
-                if len(ContentChildList[j]) > 0:    
-                    self.Article += '<p style="text-align:%s"><span style="font-size: 16px; color:rgb(38, 46, 56)">' % Alignment
-                    self.Article += ContentChildList[j]
-                    self.Article += '</span></p>'
-            if self.CommentList[i] != "":
-                self.Article += '<p><span style="font-size:14px; color:rgb(145, 152, 159)">'
-                self.Article += self.CommentList[i]
-                self.Article += '</span></p>'
-            self.Article += '<img src="%s">' % ReviewLabelUrl
-            for k in range(len(ReviewsChildList)):
-                if len(ReviewsChildList[k]) > 0:
-                    self.Article += '<p><span style="font-size:15px; color:rgb(151, 18, 19)"><strong>'
-                    self.Article += ReviewsChildList[k]
-                    self.Article += '</strong></span></p>'
-            self.Article += '<br>'
-            if i%4 == 0 and i != 0:
-                self.Article += '<img src="%s"><br>' % PicUrlList[int(i/4)-1]
-        self.Article += '<br><img src="%s"></section>' % PageFootUrl
-        
-        #生成预览html文件
-        f = open('preview.html', 'w', encoding='utf-8')
-        f.write(self.Article)
-        f.close()
+            self.File = fname[0]
+            self.textEdit_3.setText("已选中："+self.File)
+            self.textEdit_4.setText("已选中："+self.File)
     
     def GenAllCertificate(self):
-        result = 0
+        Year = self.spinBox.value()
+        Stamp = self.comboBox_7.currentText()
+        Quarter = self.comboBox_6.currentText()
+        Category = self.comboBox_2.currentText()
         if self.File == "":
             self.textEdit_3.setText("请先导入文档！")
         else:
-            self.ParseDocx3(self.File)
-            if len(self.TitleList) == len(self.ReviewsList) == len(self.ContentList):
+            self.ParseDocx3()
+            if len(self.TitleList) == len(self.AuthorList) == len(self.ContentList) == len(self.AwardList):
                 self.textEdit_3.setText("文档格式无误，正在自动生成所有奖状！")
-                for i in range(len(self.AuthorList)):
-                    self.DrawCertificate(self.AwardList[i], self.TitleList[i], self.AuthorList[i], self.Category, self.ContentList[i])
+                myDrawer = Drawer(Stamp,Category,Quarter,Year)
+                for i in range(len(self.TitleList)):
+                    myDrawer.DrawCertificate(self.AwardList[i], self.TitleList[i], self.AuthorList[i], self.ContentList[i])
             else:
                 self.textEdit_3.setText("文档格式不正确，请选择需要打印的输出信息！")
     
     def GenOneCertificate(self):
+        Year = self.spinBox.value()
         Author = self.lineEdit.text()
         Title = self.lineEdit_2.text()
         Award = self.comboBox.currentText()
         Content = self.textEdit.toPlainText()
+        Stamp = self.comboBox_7.currentText()
+        Quarter = self.comboBox_6.currentText()
         Category = self.comboBox_2.currentText()
         if Content == "" or Author == "" or Title == "":
             self.textEdit_3.setText("请输入必要的作品信息！")
         else:
-            self.DrawCertificate(Award, Title, Author, Category, Content)
+            myDrawer = Drawer(Stamp,Category,Quarter,Year)
+            myDrawer.DrawCertificate(Award,Title,Author,Content)  
     
-    def DrawCertificate(self, Award, Title, Author, Category, Content):
-        LineList = re.split(r'[。]',Content.strip())
+    def GenPreview(self):
+        result = ErrorType.NoError
+        KeyWord = self.lineEdit_3.text()
+        Category = self.comboBox_8.currentText()
         
-        Year = str(datetime.datetime.now().year)[:2]
-        Month = datetime.datetime.now().month
-        Day = str(datetime.datetime.now().day)
-        
-        if Month < 4 :
-            Quarter = "一"
-        elif Month > 3 and Month < 7:
-            Quarter = "二"
-        elif Month > 6 and Month < 10:
-            Quarter = "三"
-        else :
-            Quarter = "四"
-        
-        TextFont = ImageFont.truetype("font/华康魏碑.ttc", 60)
-        Date1Font = ImageFont.truetype("font/华康宋体.ttc", 70)
-        Date2Font = ImageFont.truetype("font/华康宋体.ttc", 50)
-        TitleFont = ImageFont.truetype("font/华康黑体.ttc", 70)
-        AwardFont = ImageFont.truetype("font/华康楷体.ttc", 140)
-        AuthorFont = ImageFont.truetype("font/华康黑体.ttc", 110)
-        CategoryFont = ImageFont.truetype("font/华康魏碑.ttc", 60)
-        
-        Background = cv2.imread("CertTemplate.jpg")
-        PilImage = Image.fromarray(Background)
-        draw = ImageDraw.Draw(PilImage)
-        
-        if len(Title) >= 15:
-            draw.text((470, 700), Title, font=TitleFont, fill=(0, 0, 0))
-        else:
-            draw.text((1000-len(Title)*35, 700), Title, font=TitleFont, fill=(0, 0, 0))
-        
-        if len(Author) >= 12:
-            draw.text((1800, 700), Author, font=AuthorFont, fill=(0, 0, 0))
-        else:
-            draw.text((2500-len(Author)*50, 700), Author, font=AuthorFont, fill=(0, 0, 0))
-        
-        draw.text((810, 940), Author, font=TextFont, fill=(0, 0, 0))
-        draw.text((2750, 860), Year, font=Date1Font, fill=(0, 0, 0))
-        draw.text((2950, 860), Quarter, font=Date1Font, fill=(0, 0, 0))
-        draw.text((2650, 1960), Year, font=Date2Font, fill=(0, 0, 0))
-        draw.text((2750, 1960), str(Month), font=Date2Font, fill=(0, 0, 0))
-        draw.text((2850, 1960), Day, font=Date2Font, fill=(0, 0, 0))
-        draw.text((2350, 1080), Award, font=AwardFont, fill=(0, 0, 0))
-        draw.text((2850, 1140), Category, font=CategoryFont, fill=(0, 0, 0))
-        
-        for i in range(len(LineList)):
-            if len(LineList[i]) > 0:
-                draw.text((500, 1050 + 80*i), LineList[i] + "。", font=TextFont, fill=(0, 0, 0))
-        
-        Background = np.array(PilImage)  
-        cv2.waitKey()
-        cv2.imencode(".jpg", Background)[1].tofile(str(Author)+".jpg")
-        self.textEdit_3.append("生成：" + Author +".jpg！\n")
+        if result == ErrorType.NoError and self.File == "":
+            result = ErrorType.NoFile
+            self.textEdit_4.setText("请先导入文档！")
+        if result == ErrorType.NoError and KeyWord == "":
+            result = ErrorType.NoKeyWord
+            self.textEdit_4.setText("请输入搜索图片关键词！")
+        if result == ErrorType.NoError and self.gzh.getAccessToken() != "True":
+            result = ErrorType.NoAccessToken
+            self.textEdit_4.setText(self.gzh.getAccessToken())
+        if result == ErrorType.NoError and len(self.TitleList) == 0:
+            result = ErrorType.NoCheckFormat
+            self.textEdit_4.setText("请先点击'检查格式'按钮！")
+        if result == ErrorType.NoError and len(self.TitleList) != len(self.ReviewsList) != len(self.ContentList) != len(self.CommentList):
+            result = ErrorType.FileFormatError
+            self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
+        if result == ErrorType.NoError and os.path.isfile("cover.jpg") == False:
+            result = ErrorType.NoCoverImg
+            self.textEdit_4.setText("请添加封面图片！")
+        if result == ErrorType.NoError:
+            self.textEdit_4.setText("正在生成文章并上传公众号！")
+            self.gzh.GenHtmlFile(KeyWord,self.Template,self.TitleList,self.ContentList,self.ReviewsList,self.CommentList,Category,self.AuthorList,self.AddressList)
     
-    def ParseDocx2(self, FileName):
-        self.InitClassMember()
-        TitleFlag = 0
-        Reviews = ""
-        Content = ""
-        Comment = ""
-        RegDigest = "本期评委.*"
-        RegTheme = ".*第.*季度.*"
-        RegTitle = "[0-9]+、.*|[0-9]+-[1-3]+、.*|[0-9]+·.*|[0-9]+-[1-3]+·.*"
-        RegReviews = "..+:.*|..+：.*|【.*"
+    #检查奖状文章格式
+    def CheckDocxFormat_1(self):
+        if self.File == "":
+            self.textEdit_3.setText("请先导入文档！")
+        else:
+            self.ParseDocx3()
+        
+            PrintText = ""
+            Class = self.comboBox_5.currentText()
+            if Class == "标题":
+                for item in self.TitleList:
+                    PrintText += item + "\n" 
+                PrintText += "数量为：" + str(len(self.TitleList))
+            elif Class == "内容":
+                for item in self.ContentList:
+                    PrintText += item + "\n\n"
+                PrintText += "数量为：" + str(len(self.ContentList))
+            elif Class == "作者":
+                for item in self.AuthorList:
+                    PrintText += item + "\n\n"
+                PrintText += "数量为：" + str(len(self.AuthorList))
+            else:
+                pass
+            self.textEdit_3.setText(PrintText)
+    
+    #检查公众号文章格式
+    def CheckDocxFormat_2(self):
+        if self.File == "":
+            self.textEdit_4.setText("请先导入文档！")
+        else:
+            if self.radioButton.isChecked() == True:
+                self.Template = "个人专辑"
+                self.ParseDocx1()
+            elif self.radioButton_2.isChecked() == True:
+                self.Template = "月度入围"
+                self.ParseDocx2()
+            elif self.radioButton_3.isChecked() == True:
+                self.Template = "季度获奖"
+                self.ParseDocx3()
+            else:
+                pass
+        
+            PrintText = ""
+            Class = self.comboBox_4.currentText()
+            if Class == "标题":
+                for item in self.TitleList:
+                    PrintText += item + "\n" 
+                PrintText += "数量为：" + str(len(self.TitleList))
+            if Class == "内容":
+                for item in self.ContentList:
+                    PrintText += item + "\n\n"
+                PrintText += "数量为：" + str(len(self.ContentList))
+            if Class == "注释":
+                for item in self.CommentList:
+                    PrintText += item + "\n"
+                PrintText += "数量为：" + str(len(self.CommentList))
+            if Class == "评语":
+                for item in self.ReviewsList:
+                    PrintText += item + "\n\n"
+                PrintText += "数量为：" + str(len(self.ReviewsList))
+            if Class == "作者":
+                for item in self.AuthorList:
+                    PrintText += item + "\n"
+                PrintText += "数量为：" + str(len(self.AuthorList))
+            if Class == "地址":
+                for item in self.AddressList:
+                    PrintText += item + "\n"
+                PrintText += "数量为：" + str(len(self.AddressList))
+            self.textEdit_4.setText(PrintText)
+    
+    def SetComboBoxList(self):
+        _translate = QCoreApplication.translate
+        self.comboBox_4.clear()
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.setItemText(0, _translate("MainWindow", "标题"))
+        self.comboBox_4.setItemText(1, _translate("MainWindow", "内容"))
+        self.comboBox_4.setItemText(2, _translate("MainWindow", "注释"))
+        if self.radioButton_2.isChecked() == True:
+            self.comboBox_4.addItem("")
+            self.comboBox_4.setItemText(3, _translate("MainWindow", "评语"))
+        elif self.radioButton_3.isChecked() == True:
+            self.comboBox_4.addItem("")
+            self.comboBox_4.addItem("")
+            self.comboBox_4.addItem("")
+            self.comboBox_4.setItemText(3, _translate("MainWindow", "评语"))
+            self.comboBox_4.setItemText(4, _translate("MainWindow", "作者"))
+            self.comboBox_4.setItemText(5, _translate("MainWindow", "地址"))
+        else:
+            pass
+    
+    def ClearOutputWindow(self):
+        self.textEdit_3.setText("")
+        self.textEdit_4.setText("")
+    
+    #解析个人专辑
+    def ParseDocx1(self):
+        print("TODO")
+    
+    #解析月度入围名单
+    def ParseDocx2(self):
         RegComment = "^注.*"
-        document = Document(FileName)
+        RegReviews = "..+评:.*|..+评：.*|【.+评】.*"
+        RegTitle = "[0-9]+、.*|[0-9]+-[1-3]+、.*|[0-9]+·.*|[0-9]+-[1-3]+·.*"
+        self.ResetClassMember()
+        TitleFlag = 0#题目以下是作品正文
+        SingleReview = [2]
+        Reviews = "" #单条评语
+        Content = "" #单条内容
+        Comment = "" #单条注释
+        document = Document(self.File)
         for paragraph in document.paragraphs:
             if paragraph.text != "":
-                FindDigest = re.search(RegDigest, paragraph.text)
-                FindTheme = re.search(RegTheme, paragraph.text)
                 FindTitle = re.search(RegTitle, paragraph.text)
                 FindReviews = re.search(RegReviews, paragraph.text)
                 FindComment = re.search(RegComment, paragraph.text)
-                if FindTheme:
-                    self.Theme = FindTheme.group()
-                elif FindDigest:
-                    self.Digest = FindDigest.group()
-                elif FindReviews:
+                if FindReviews:
                     TitleFlag = 0
                     if Content != "":
                         self.ContentList.append(Content)
                         Content = ""
-                    Reviews += FindReviews.group() + "-"
-                elif TitleFlag == 1 and FindComment == None:
-                    Content += paragraph.text + "-"
-                elif TitleFlag == 1 and FindComment:
-                    Comment = FindComment.group()
+                    #单条评语拆分成列表：[评委, 评语]
+                    SingleReview = re.split(":|：", FindReviews.group())
+                    if SingleReview[0] not in self.ReviewerList:
+                        self.ReviewerList.append(SingleReview[0])
+                    #给评委名字前后加上装饰符：【】
+                    if "【" not in SingleReview[0]:
+                        Reviews += "【" + SingleReview[0] + "】" + SingleReview[1] + "-"
+                    else:
+                        Reviews += "-" + FindReviews.group()
                 elif FindTitle:
                     self.TitleList.append(FindTitle.group())
                     TitleFlag = 1
+                elif TitleFlag == 1 and FindComment == None:
+                    Content += paragraph.text + "-"
+                elif TitleFlag == 1 and FindComment:
+                    Comment += paragraph.text + "-"
             else:
                 if Reviews != "":
                     self.CommentList.append(Comment)
                     self.ReviewsList.append(Reviews)
                     Comment = ""
                     Reviews = ""
-        self.PoemNum = len(self.TitleList)
     
-    def ParseDocx3(self, File):
-        self.InitClassMember()
-        Content = ""
-        CurrentAward = ""
-        AddressFlag = 0
+    #解析获奖名单
+    def ParseDocx3(self):
+        RegComment = "^注.*"
+        RegReviews = "..+评:.*|..+评：.*|【.+评】.*"
         RegTitle = "[0-9]+、.*|[0-9]+-[1-3]+、.*|[0-9]+·.*|[0-9]+-[1-3]+·.*"
+        self.ResetClassMember()
+        Reviews = "" #单条评语
+        Content = "" #单条内容
+        Comment = "" #单条注释
+        idx = 0
+        AddressFlag = 0 #地址以下是作品正文
+        CurrentAward = ""
+        tempAwardList = []
+        SingleReview = [2]
         RegAuthor = "作者：.*|作者:.*|姓名：.*|姓名:.*"
-        RegAddress = "地址:|地址：|住址:|住址："
-        WritingType = ["诗部", "词部", "曲部"]
-        AwardsClass = ["一等奖", "二等奖", "三等奖", "优秀奖"]
-        document = Document(File)
+        RegAddress = "地址:.*|地址：.*|住址:.*|住址：.*"
+        AwardClass = ["一等奖", "二等奖", "三等奖", "优秀奖"]
+        document = Document(self.File)
         for paragraph in document.paragraphs:
             if paragraph.text != "":
                 FindTitle = re.search(RegTitle, paragraph.text)
                 FindAuthor = re.search(RegAuthor, paragraph.text)
                 FindAddress = re.search(RegAddress, paragraph.text)
-                if self.Category == "":
-                    for i in range(len(WritingType)):
-                        FindCategory = re.search(WritingType[i], paragraph.text)
-                        if FindCategory:
-                            self.Category = WritingType[i]
-                            break;
-                for j in range(len(AwardsClass)):
-                    FindAward = re.search(AwardsClass[j]+".*", paragraph.text)
-                    if FindAward:
-                        CurrentAward = AwardsClass[j]
-                        break;
-                if FindTitle:
-                    self.TitleList.append(FindTitle.group())
+                FindReviews = re.search(RegReviews, paragraph.text)
+                FindComment = re.search(RegComment, paragraph.text)
+                FindAward = re.search(AwardClass[idx], paragraph.text)
+                if FindReviews:
+                    AddressFlag = 0
+                    if Content != "":
+                        self.ContentList.append(Content)
+                        Content = ""                    
+                    #单条评语拆分成列表：[评委, 评语]
+                    SingleReview = re.split(":|：", FindReviews.group())
+                    if SingleReview[0] not in self.ReviewerList:
+                        self.ReviewerList.append(SingleReview[0])
+                    #给评委名字前后加上符号：【】
+                    if "【" not in SingleReview[0]:
+                        Reviews += "【" + SingleReview[0] + "】" + SingleReview[1] + "-"
+                    else:
+                        Reviews += "-" + FindReviews.group()
+                elif FindAward:
+                    CurrentAward = AwardClass[idx]
+                    if idx + 1 < 4:
+                        idx += 1
+                elif FindTitle:
+                    self.TitleList.append(DeleteNumber(FindTitle.group()))
                 elif FindAuthor:
-                    self.AuthorList.append(FindAuthor.group())
+                    self.AuthorList.append(FindAuthor.group()[3:])
                 elif FindAddress:
+                    self.AddressList.append(FindAddress.group()[3:])
                     AddressFlag = 1
-                elif AddressFlag == 1:
-                    Content += paragraph.text
-            elif Content != "" and AddressFlag == 1:
-                self.AwardList.append(CurrentAward)
-                self.ContentList.append(Content)
-                AddressFlag = 0
-                Content = ""
-    
-    def UploadArticle(self, cover):
-        CoverImgId, url = self.uploadImage(cover)
-        FileNames = {
-        "articles": [{
-            "title": self.Theme,
-            "thumb_media_id": CoverImgId,
-            "author": "白雀奖",
-            "digest": self.Digest + " 本期共有%s首作品入围。" % self.PoemNum,
-            "show_cover_pic": 1,
-            "content": self.Article,
-            "content_source_url": "",
-            "need_open_comment": 0,
-            "only_fans_can_comment": 0}
-        ]}
-        url = "https://api.weixin.qq.com/cgi-bin/material/add_news?access_token=%s" % self.AccessToken
-        response = requests.post(url, json.dumps(FileNames, ensure_ascii=False).encode('utf-8')).text
-        MediaId = json.loads(response)["media_id"]
-        self.textEdit_4.setText("文章已成功生成，请进入公众号素材区查看！")
-    
-    def GenSelfMediaArticle(self):
-        result = 0
-        if self.File == "":
-            self.textEdit_4.setText("请先导入文档！")
-        else:
-            self.ParseDocx2(self.File)
-            if len(self.TitleList) == len(self.ReviewsList) == len(self.ContentList):
-                self.textEdit_4.setText("文档格式无误，正在自动生成公众号文章！")
-                result = 1
+                elif AddressFlag == 1 and FindComment == None:
+                    Content += paragraph.text + "-"
+                elif FindComment:
+                    Comment += paragraph.text + "-"
             else:
-                self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
-        if result == 1:
-            self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
-            result = self.getAccessToken()
-        if result == 1:
-            KeyWord = self.lineEdit_3.text()
-            if KeyWord == "":
-                self.textEdit_4.setText("请输入图片关键字！")
-            else:
-                self.GenHtmlFile(KeyWord, 1)
-                self.UploadArticle("cover.jpg")
-    
-    def CheckDocxFormat(self):
-        if self.File == "":
-            if self.CurrentIndex == 0:
-                self.textEdit_3.setText("请先导入文档！")
-            else:
-                self.textEdit_4.setText("请先导入文档！")
-        else:
-            if self.CurrentIndex == 0:
-                self.ParseDocx3(self.File)
-            else:
-                self.ParseDocx2(self.File)
-        Class = self.comboBox_4.currentText()
-        if Class == "标题":
-            for item in self.TitleList:
-                self.PrintText = self.PrintText + item + "\n" 
-                self.textEdit_4.setText(self.PrintText)
-        elif Class == "内容":
-            for item in self.ContentList:
-                self.PrintText = self.PrintText + item + "\n\n" 
-                self.textEdit_4.setText(self.PrintText)
-        elif Class == "评语":
-            for item in self.ReviewsList:
-                self.PrintText = self.PrintText + item + "\n\n" 
-                self.textEdit_4.setText(self.PrintText)
-        elif Class == "注释":
-            for item in self.CommentList:
-                self.PrintText = self.PrintText + item + "\n" 
-                self.textEdit_4.setText(self.PrintText)
-    
-    def ClearOutputWindow(self):
-        self.PrintText = ""
-        if self.CurrentIndex == 0:
-            self.textEdit_3.setText(self.PrintText)
-        else:
-            self.textEdit_4.setText(self.PrintText)
-    
+                if Reviews != "":
+                    self.AwardList.append(CurrentAward)                   
+                    self.ReviewsList.append(Reviews)
+                    self.CommentList.append(Comment)
+                    Reviews = ""
+                    Comment = ""
+        #for item in AwardClass:
+            #self.AwardList.append(tempAwardList.count(item))
+
 if __name__ == '__main__':
   app = QApplication(sys.argv)
   bq = BaiQue()
