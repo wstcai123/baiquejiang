@@ -216,7 +216,7 @@ class Ui_MainWindow(object):
         self.label_9.setFont(font)
         self.label_9.setObjectName("label_9")
         self.lineEdit_3 = QtWidgets.QLineEdit(self.groupBox_5)
-        self.lineEdit_3.setGeometry(QtCore.QRect(140, 30, 91, 21))
+        self.lineEdit_3.setGeometry(QtCore.QRect(130, 30, 91, 21))
         self.lineEdit_3.setObjectName("lineEdit_3")
         self.label_14 = QtWidgets.QLabel(self.groupBox_5)
         self.label_14.setGeometry(QtCore.QRect(20, 70, 54, 12))
@@ -273,6 +273,11 @@ class Ui_MainWindow(object):
         self.spinBox_3 = QtWidgets.QSpinBox(self.groupBox_5)
         self.spinBox_3.setGeometry(QtCore.QRect(190, 110, 42, 22))
         self.spinBox_3.setObjectName("spinBox_3")
+        self.checkBox = QtWidgets.QCheckBox(self.groupBox_5)
+        self.checkBox.setGeometry(QtCore.QRect(230, 30, 21, 16))
+        self.checkBox.setText("")
+        self.checkBox.setChecked(True)
+        self.checkBox.setObjectName("checkBox")
         self.groupBox_5.raise_()
         self.groupBox_4.raise_()
         self.stackedWidget.addWidget(self.page_2)
@@ -293,6 +298,7 @@ class Ui_MainWindow(object):
         self.retranslateUi(MainWindow)
         self.stackedWidget.setCurrentIndex(1)
         self.treeWidget.itemClicked['QTreeWidgetItem*','int'].connect(self.StackedWidgetSwitch)
+        self.checkBox.toggled['bool'].connect(self.EnableKeywordInput)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
     def retranslateUi(self, MainWindow):

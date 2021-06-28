@@ -677,7 +677,7 @@
       <widget class="QLineEdit" name="lineEdit_3">
        <property name="geometry">
         <rect>
-         <x>140</x>
+         <x>130</x>
          <y>30</y>
          <width>91</width>
          <height>21</height>
@@ -907,6 +907,22 @@
         </rect>
        </property>
       </widget>
+      <widget class="QCheckBox" name="checkBox">
+       <property name="geometry">
+        <rect>
+         <x>230</x>
+         <y>30</y>
+         <width>21</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
      </widget>
      <zorder>groupBox_5</zorder>
      <zorder>groupBox_4</zorder>
@@ -953,6 +969,22 @@
     <hint type="destinationlabel">
      <x>208</x>
      <y>248</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>checkBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>lineEdit_3</receiver>
+   <slot>show()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>404</x>
+     <y>68</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>375</x>
+     <y>70</y>
     </hint>
    </hints>
   </connection>

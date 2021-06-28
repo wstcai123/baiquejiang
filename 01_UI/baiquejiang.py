@@ -1,5 +1,5 @@
-﻿#!/usr/bin/python
-#-*- coding:utf-8 -*-
+﻿# !/usr/bin/python
+# -*- coding:utf-8 -*-
 
 import os
 import re
@@ -42,32 +42,52 @@ class BaiQue(QMainWindow, Ui_MainWindow):
         self.ShowTemplatePng()   
         self.radioButton.setChecked(True)
     
+    def EnableKeywordInput(self):
+        if self.checkBox.isChecked():
+            self.lineEdit_3.setEnabled(True)
+        else:
+            self.lineEdit_3.setEnabled(False)
+    
     def ResetClassMember(self):
-        self.AwardList = []    #奖次列表
-        self.TitleList = []    #题目列表
-        self.AuthorList = []   #作者列表
-        self.CommentList = []  #注释列表
-        self.ContentList = []  #内容列表
-        self.AddressList = []  #地址列表
-        self.ReviewsList = []  #评语列表
-        self.ReviewerList = [] #评委列表      
+        self.Profile = ""      # 个人简介
+        self.AwardList = []    # 奖次列表
+        self.TitleList = []    # 题目列表
+        self.AuthorList = []   # 作者列表
+        self.CommentList = []  # 注释列表
+        self.ContentList = []  # 内容列表
+        self.AddressList = []  # 地址列表
+        self.ReviewsList = []  # 评语列表
+        self.ReviewerList = [] # 评委列表      
         self.textEdit_4.setText("评语的默认正则表达式为：..+评:.*|..+评：.*|【.+评】.*")
     
+    # 接受GzhHandler的返回结果，准备标题、摘要，调用GzhHandler.UploadArticle
     @pyqtSlot(str)
     def PreviewFinish(self, Article):
-        self.Article = Article
         self.textEdit_4.setText("预览已生成，请点击preview.html查看！")
+        self.Article = Article
         Year = str(self.spinBox_2.value())
         Month = str(self.spinBox_3.value())
         Quarter = self.comboBox_9.currentText()
-        Category = self.comboBox_8.currentText()    
-        title = "白雀奖 || 20"+Year+"年第"+Quarter+"季度"+Month+"月份"+Category+"部入围作品及点评"     
-        digest = "本期评委："
-        for Reviewer in self.ReviewerList:
-            digest += Reviewer.replace("评","")+"、"
-        digest += "本期共有"+str(len(self.TitleList))+"首作品入围。"
+
+        # 合成标题和摘要
+        if self.Template == "个人专辑":
+            title = "白雀奖 || XXX诗词曲作品专辑"
+            digest = self.Profile[:100] # 摘要限制字数
+        elif self.Template == "月度入围":
+            title = "白雀奖 || 20"+Year+"年第"+Quarter+"季度"+Month+"月份"+Category+"部入围作品及点评"
+            digest = "本期评委："
+            for Reviewer in self.ReviewerList:
+                digest += Reviewer.replace("评","")+"，"
+                digest += "本期共有"+str(len(self.TitleList))+"首作品入围。"
+        elif self.Template == "季度获奖":
+            title = "白雀奖 || 20"+Year+"年第"+Quarter+"季度"+Category+"部获奖公告"
+            digest = "终评评委："
+            for Reviewer in self.ReviewerList:
+                digest += Reviewer.replace("评","")+"，"
+        
         self.gzh.UploadArticle(title,"cover.jpg",digest,self.Article)
     
+    # 接受GzhHandler的返回结果，在窗口打印信息
     @pyqtSlot(str)
     def UploadFinish(self, Result):
         self.textEdit_4.setText(Result)
@@ -102,8 +122,6 @@ class BaiQue(QMainWindow, Ui_MainWindow):
             self.stackedWidget.setCurrentIndex(0)
         elif item.text(0) == "一键公众号文章":
             self.stackedWidget.setCurrentIndex(1)
-        else:
-            pass
     
     def SelectFile(self):
         fname = QFileDialog.getOpenFileName(None, "选择文档", "/", "*.docx")
@@ -125,7 +143,8 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                 self.textEdit_3.setText("文档格式无误，正在自动生成所有奖状！")
                 myDrawer = Drawer(Stamp,Category,Quarter,Year)
                 for i in range(len(self.TitleList)):
-                    myDrawer.DrawCertificate(self.AwardList[i], self.TitleList[i], self.AuthorList[i], self.ContentList[i])
+                    result = myDrawer.DrawCertificate(self.AwardList[i], self.TitleList[i], self.AuthorList[i], self.ContentList[i])
+                    self.textEdit_3.setText("正在生成：" + result)
             else:
                 self.textEdit_3.setText("文档格式不正确，请选择需要打印的输出信息！")
     
@@ -146,13 +165,13 @@ class BaiQue(QMainWindow, Ui_MainWindow):
     
     def GenPreview(self):
         result = ErrorType.NoError
-        KeyWord = self.lineEdit_3.text()
+        Keyword = self.lineEdit_3.text()
         Category = self.comboBox_8.currentText()
         
         if result == ErrorType.NoError and self.File == "":
             result = ErrorType.NoFile
             self.textEdit_4.setText("请先导入文档！")
-        if result == ErrorType.NoError and KeyWord == "":
+        if result == ErrorType.NoError and self.checkBox.isChecked() and Keyword == "":
             result = ErrorType.NoKeyWord
             self.textEdit_4.setText("请输入搜索图片关键词！")
         if result == ErrorType.NoError and self.gzh.getAccessToken() != "True":
@@ -161,17 +180,27 @@ class BaiQue(QMainWindow, Ui_MainWindow):
         if result == ErrorType.NoError and len(self.TitleList) == 0:
             result = ErrorType.NoCheckFormat
             self.textEdit_4.setText("请先点击'检查格式'按钮！")
-        if result == ErrorType.NoError and len(self.TitleList) != len(self.ReviewsList) != len(self.ContentList) != len(self.CommentList):
-            result = ErrorType.FileFormatError
-            self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
+        if result == ErrorType.NoError:
+            if self.Template == "个人专辑":
+                if len(self.TitleList) != len(self.ContentList) != len(self.CommentList):
+                    result = ErrorType.FileFormatError
+                    self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
+            elif self.Template == "月度入围":
+                if len(self.TitleList) != len(self.ReviewsList) != len(self.ContentList) != len(self.CommentList):
+                    result = ErrorType.FileFormatError
+                    self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
+            elif self.Template == "季度获奖":
+                if len(self.TitleList) != len(self.ReviewsList) != len(self.ContentList) != len(self.CommentList) != len(self.AddressList) != len(self.AuthorList):
+                    result = ErrorType.FileFormatError
+                    self.textEdit_4.setText("文档格式不正确，请选择需要打印的输出信息！")
         if result == ErrorType.NoError and os.path.isfile("cover.jpg") == False:
             result = ErrorType.NoCoverImg
             self.textEdit_4.setText("请添加封面图片！")
         if result == ErrorType.NoError:
-            self.textEdit_4.setText("正在生成文章并上传公众号！")
-            self.gzh.GenHtmlFile(KeyWord,self.Template,self.TitleList,self.ContentList,self.ReviewsList,self.CommentList,Category,self.AuthorList,self.AddressList)
+            self.textEdit_4.setText("正在生成文章并上传公众号...")
+            self.gzh.GenHtmlFile(self.Keyword,Category,self.Template,self.TitleList,self.ContentList,self.ReviewsList,self.CommentList,self.AuthorList,self.AddressList,self.Profile)
     
-    #检查奖状文章格式
+    # 检查奖状文章格式
     def CheckDocxFormat_1(self):
         if self.File == "":
             self.textEdit_3.setText("请先导入文档！")
@@ -192,11 +221,10 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                 for item in self.AuthorList:
                     PrintText += item + "\n\n"
                 PrintText += "数量为：" + str(len(self.AuthorList))
-            else:
-                pass
+            
             self.textEdit_3.setText(PrintText)
     
-    #检查公众号文章格式
+    # 检查公众号文章格式
     def CheckDocxFormat_2(self):
         if self.File == "":
             self.textEdit_4.setText("请先导入文档！")
@@ -210,8 +238,6 @@ class BaiQue(QMainWindow, Ui_MainWindow):
             elif self.radioButton_3.isChecked() == True:
                 self.Template = "季度获奖"
                 self.ParseDocx3()
-            else:
-                pass
         
             PrintText = ""
             Class = self.comboBox_4.currentText()
@@ -239,6 +265,8 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                 for item in self.AddressList:
                     PrintText += item + "\n"
                 PrintText += "数量为：" + str(len(self.AddressList))
+            if Class == "简介":
+                PrintText = self.Profile
             self.textEdit_4.setText(PrintText)
     
     def SetComboBoxList(self):
@@ -246,42 +274,86 @@ class BaiQue(QMainWindow, Ui_MainWindow):
         self.comboBox_4.clear()
         self.comboBox_4.addItem("")
         self.comboBox_4.addItem("")
-        self.comboBox_4.addItem("")
         self.comboBox_4.setItemText(0, _translate("MainWindow", "标题"))
         self.comboBox_4.setItemText(1, _translate("MainWindow", "内容"))
-        self.comboBox_4.setItemText(2, _translate("MainWindow", "注释"))
         if self.radioButton_2.isChecked() == True:
             self.comboBox_4.addItem("")
+            self.comboBox_4.addItem("")
+            self.comboBox_4.setItemText(2, _translate("MainWindow", "注释"))
             self.comboBox_4.setItemText(3, _translate("MainWindow", "评语"))
         elif self.radioButton_3.isChecked() == True:
             self.comboBox_4.addItem("")
             self.comboBox_4.addItem("")
             self.comboBox_4.addItem("")
+            self.comboBox_4.addItem("")
+            self.comboBox_4.setItemText(2, _translate("MainWindow", "注释"))
             self.comboBox_4.setItemText(3, _translate("MainWindow", "评语"))
             self.comboBox_4.setItemText(4, _translate("MainWindow", "作者"))
             self.comboBox_4.setItemText(5, _translate("MainWindow", "地址"))
-        else:
-            pass
+        elif self.radioButton.isChecked() == True:
+            self.comboBox_4.addItem("")
+            self.comboBox_4.setItemText(2, _translate("MainWindow", "简介"))
     
     def ClearOutputWindow(self):
         self.textEdit_3.setText("")
         self.textEdit_4.setText("")
     
-    #解析个人专辑
+    # 解析个人专辑
     def ParseDocx1(self):
-        print("TODO")
+        
+        # 定义正则表达式
+        RegProfile = "个人简介"
+        RegComment = "^注.*"
+        RegContent = "正文"
+        
+        # 定义局部变量
+        Comment = "" # 单条注释
+        Content = "" # 单条内容
+        TitleFlag = False # 题目以下是作品正文
+        
+        # 开始解析
+        self.ResetClassMember()
+        document = Document(self.File)
+        for paragraph in document.paragraphs:
+            if paragraph.text != "":
+                FindProfile = re.search(RegProfile, paragraph.text)
+                FindContent = re.search(RegContent, paragraph.text)
+                FindComment = re.search(RegComment, paragraph.text)
+                if FindProfile:
+                    self.Profile = paragraph.text
+                else:
+                    if TitleFlag == True:
+                        self.TitleList.append(paragraph.text)
+                        TitleFlag = False
+                    elif FindComment:
+                        Comment += paragraph.text + "-"
+                    else:
+                        Content += paragraph.text + "-"
+            else:
+                TitleFlag = True
+                if Content != "":
+                    self.ContentList.append(Content)                   
+                    self.CommentList.append(Comment)                   
+                    Comment = ""
+                    Content = ""
     
-    #解析月度入围名单
+    # 解析月度入围名单
     def ParseDocx2(self):
+        
+        # 定义正则表达式
         RegComment = "^注.*"
         RegReviews = "..+评:.*|..+评：.*|【.+评】.*"
         RegTitle = "[0-9]+、.*|[0-9]+-[1-3]+、.*|[0-9]+·.*|[0-9]+-[1-3]+·.*"
+        
+        # 定义局部变量
+        Reviews = "" # 单条评语
+        Content = "" # 单条内容
+        Comment = "" # 单条注释
+        TitleFlag = False  # 题目以下是作品正文
+        SingleReview = [2] # 用于将评语拆分成两部分：[评委, 评语]
+        
+        # 开始解析
         self.ResetClassMember()
-        TitleFlag = 0#题目以下是作品正文
-        SingleReview = [2]
-        Reviews = "" #单条评语
-        Content = "" #单条内容
-        Comment = "" #单条注释
         document = Document(self.File)
         for paragraph in document.paragraphs:
             if paragraph.text != "":
@@ -289,25 +361,25 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                 FindReviews = re.search(RegReviews, paragraph.text)
                 FindComment = re.search(RegComment, paragraph.text)
                 if FindReviews:
-                    TitleFlag = 0
+                    TitleFlag = False
                     if Content != "":
                         self.ContentList.append(Content)
                         Content = ""
-                    #单条评语拆分成列表：[评委, 评语]
+                    # 单条评语拆分成列表：[评委, 评语]
                     SingleReview = re.split(":|：", FindReviews.group())
                     if SingleReview[0] not in self.ReviewerList:
                         self.ReviewerList.append(SingleReview[0])
-                    #给评委名字前后加上装饰符：【】
+                    # 给评委名字前后加上装饰符：【】
                     if "【" not in SingleReview[0]:
                         Reviews += "【" + SingleReview[0] + "】" + SingleReview[1] + "-"
                     else:
                         Reviews += "-" + FindReviews.group()
                 elif FindTitle:
                     self.TitleList.append(FindTitle.group())
-                    TitleFlag = 1
-                elif TitleFlag == 1 and FindComment == None:
+                    TitleFlag = True
+                elif TitleFlag == True and FindComment == None:
                     Content += paragraph.text + "-"
-                elif TitleFlag == 1 and FindComment:
+                elif FindComment:
                     Comment += paragraph.text + "-"
             else:
                 if Reviews != "":
@@ -316,23 +388,28 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                     Comment = ""
                     Reviews = ""
     
-    #解析获奖名单
+    # 解析获奖名单
     def ParseDocx3(self):
+        
+        # 定义正则表达式
         RegComment = "^注.*"
         RegReviews = "..+评:.*|..+评：.*|【.+评】.*"
-        RegTitle = "[0-9]+、.*|[0-9]+-[1-3]+、.*|[0-9]+·.*|[0-9]+-[1-3]+·.*"
-        self.ResetClassMember()
-        Reviews = "" #单条评语
-        Content = "" #单条内容
-        Comment = "" #单条注释
-        idx = 0
-        AddressFlag = 0 #地址以下是作品正文
-        CurrentAward = ""
-        tempAwardList = []
-        SingleReview = [2]
         RegAuthor = "作者：.*|作者:.*|姓名：.*|姓名:.*"
         RegAddress = "地址:.*|地址：.*|住址:.*|住址：.*"
-        AwardClass = ["一等奖", "二等奖", "三等奖", "优秀奖"]
+        RegTitle = "[0-9]+、.*|[0-9]+-[1-3]+、.*|[0-9]+·.*|[0-9]+-[1-3]+·.*"
+        
+        # 定义局部变量
+        Reviews = "" # 单条评语
+        Content = "" # 单条内容
+        Comment = "" # 单条注释
+        AddressFlag = False # 地址以下是作品正文
+        CurrentAward = ""   # 记录当前获奖级别
+        SingleReview = [2]  # 用于将评语拆分成两部分：[评委, 评语]
+        AwardClass = ["一等奖", "二等奖", "三等奖", "优秀奖"] # 获奖级别
+        idx = 0 # 用于遍历获奖级别列表
+        
+        # 开始解析
+        self.ResetClassMember()
         document = Document(self.File)
         for paragraph in document.paragraphs:
             if paragraph.text != "":
@@ -343,15 +420,15 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                 FindComment = re.search(RegComment, paragraph.text)
                 FindAward = re.search(AwardClass[idx], paragraph.text)
                 if FindReviews:
-                    AddressFlag = 0
+                    AddressFlag = False
                     if Content != "":
                         self.ContentList.append(Content)
                         Content = ""                    
-                    #单条评语拆分成列表：[评委, 评语]
+                    # 将评语拆分成两部分：[评委, 评语]
                     SingleReview = re.split(":|：", FindReviews.group())
                     if SingleReview[0] not in self.ReviewerList:
                         self.ReviewerList.append(SingleReview[0])
-                    #给评委名字前后加上符号：【】
+                    # 给评委名字前后加上修饰符：【】
                     if "【" not in SingleReview[0]:
                         Reviews += "【" + SingleReview[0] + "】" + SingleReview[1] + "-"
                     else:
@@ -366,8 +443,8 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                     self.AuthorList.append(FindAuthor.group()[3:])
                 elif FindAddress:
                     self.AddressList.append(FindAddress.group()[3:])
-                    AddressFlag = 1
-                elif AddressFlag == 1 and FindComment == None:
+                    AddressFlag = True
+                elif AddressFlag == True and FindComment == None:
                     Content += paragraph.text + "-"
                 elif FindComment:
                     Comment += paragraph.text + "-"
@@ -378,8 +455,8 @@ class BaiQue(QMainWindow, Ui_MainWindow):
                     self.CommentList.append(Comment)
                     Reviews = ""
                     Comment = ""
-        #for item in AwardClass:
-            #self.AwardList.append(tempAwardList.count(item))
+        # for item in AwardClass:
+            # self.AwardList.append(tempAwardList.count(item))
 
 if __name__ == '__main__':
   app = QApplication(sys.argv)

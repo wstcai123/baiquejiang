@@ -67,3 +67,4 @@ class Drawer():
         Background = np.array(PilImage)  
         cv2.waitKey()
         cv2.imencode(".jpg", Background)[1].tofile(str(Award)+str(Author)+".jpg")
+        return str(Award)+str(Author)+".jpg"
