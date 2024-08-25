@@ -15,19 +15,27 @@ url_list = [
 "https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=%s&type=image",
 "https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=%s",
 'https://image.baidu.com/search/index?tn=baiduimage',
-'http://image.baidu.com/search/flip?tn=baiduimage&ipn=r&ct=201326592&cl=2&lm=-1&st=-1&fm=result&fr=&sf=1&fmq=1497491098685_R&pv=&ic=0&nc=1&z=&se=1&showtab=0&fb=0&width=&height=&face=0&istype=2&ie=utf-8&ctd=1497491098685%5E00_1519X735&word='
+'http://image.baidu.com/search/flip?tn=baiduimage&ipn=r&ct=201326592&cl=2&lm=-1&st=-1&fm=result&fr=&sf=1&fmq=1497491098685_R&pv=&ic=0&nc=1&z=&se=1&showtab=0&fb=0&width=&height=&face=0&istype=2&ie=utf-8&ctd=1497491098685%5E00_1519X735&word=',
+'https://api.weixin.qq.com/cgi-bin/draft/add?',
+'https://api.weixin.qq.com/cgi-bin/media/uploadimg?access_token=%s'
 ]
 
+UrlDict = {
+    'draft' : 'https://api.weixin.qq.com/cgi-bin/draft/add?',
+    'draft' : 'https://api.weixin.qq.com/cgi-bin/draft/add?',
+}
+
+# 此线程用于上传文章至公众号
 class Thread_1(QThread):
     signal = pyqtSignal(str)
     
-    def __init__(self,CoverImgId,title,digest,content,AccessToken):
+    def __init__(self,CoverImgId,title,digest,content,access_token):
         super(Thread_1, self).__init__()
         self.CoverImgId = CoverImgId
         self.title = title
         self.digest = digest
         self.content = content
-        self.AccessToken = AccessToken
+        self.access_token = access_token
     
     def run(self):
         FileNames = {
@@ -42,31 +50,70 @@ class Thread_1(QThread):
             "need_open_comment": 0,
             "only_fans_can_comment": 0}
         ]}
-        url = url_list[0] % self.AccessToken
-        response = requests.post(url, json.dumps(FileNames, ensure_ascii=False).encode('utf-8')).text
+        
+        data = {
+            "articles": [
+                {
+                    # 文章标题
+                    "title": self.title,
+                    # 文章作者
+                    "author": "白雀奖",
+                    # html详细内容
+                    "content": self.content,
+                    # 封面图片
+                    "thumb_media_id":self.CoverImgId,
+                    # 评论开关，需要草稿支持开启评论，新号不支持开启留言会报错
+                    "need_open_comment": 1,
+                    # 摘要，会显示到推文消息处
+                    "digest": self.digest[:50],
+                    # 这个是1*1的小图的剪切坐标参数，多篇草稿合集发的时候会展示正方图，需要从封面图片处裁剪得到坐标，封面图为900*383，如果是剪切最后的正方形，则区域为点(517,0)到点(900,383),此处需要更换为01坐标系。即点为(517/900,0/383)到(900/900,383/383),最大保留6位小数，得到微信需要的剪切格式0.574444_0_1_1
+                    "pic_crop_1_1":"0.574444_0_1_1"
+                }
+            ]
+        }
+
+        header_dict = {
+            'User-Agent': '**',
+            'Content-Type': 'application/json; charset=utf-8'
+        }
+
+        url = url_list[0] % self.access_token
+        #response = requests.post(url, json.dumps(FileNames, ensure_ascii=False).encode('utf-8')).text
+        response = requests.post(
+            url = 'https://api.weixin.qq.com/cgi-bin/draft/add?',
+            params = {
+                'access_token': self.access_token
+            },
+            headers = header_dict,
+            data = bytes(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        )
+
+        response_json = response.json()
+        print(json.dumps(response_json, indent=4, ensure_ascii=False))
         try:
           MediaId = json.loads(response)["media_id"]
           
           # 生成成功，将结果返回给主调函数：GzhHandler.UploadFinish
           self.signal.emit("文章已生成，请到公众号素材区查看！")
         except:
-          self.signal.emit(str(json.loads(response)))
+          self.signal.emit(str(json.loads(response)))    
 
+# 此线程用于生成html预览文件
 class Thread_2(QThread):
     signal = pyqtSignal(str)
     
-    def __init__(self,Keyword,Cate,Template,TitleList,ContentList,ReviewsList,CommentList,AuthorList,AddressList,Profile):
+    def __init__(self, article):
         super(Thread_2, self).__init__()
-        self.Cate = Cate
-        self.Keyword = Keyword
-        self.Profile = Profile
-        self.Template = Template
-        self.TitleList = TitleList
-        self.CommentList = CommentList
-        self.ContentList = ContentList
-        self.ReviewsList = ReviewsList
-        self.AuthorList = AuthorList
-        self.AddressList = AddressList
+        self.Cate = article.cate
+        self.Keyword = article.keyword
+        self.Profile = article.profile
+        self.Template = article.template
+        self.TitleList = article.titles
+        self.CommentList = article.comments
+        self.ContentList = article.contents
+        self.ReviewsList = article.reviews
+        self.AuthorList = article.authors
+        self.AddressList = article.addresses
         AppId = "wx38330ee81eefe3da"
         AppSecret = "07b9b0ec8cab6746e208295616b80165"
         self.gzh = GzhHandler(AppId, AppSecret)
@@ -170,9 +217,9 @@ class Thread_2(QThread):
                 Article += '<img src="%s">' % ReviewLabelUrl
                 for k in range(len(ReviewsChildList)):
                     if len(ReviewsChildList[k]) > 0:
-                        Article += '<p><span style="font-size:15px; color:rgb(151, 18, 19)"><strong>'
+                        Article += '<p><span style="font-size:15px; color:rgb(151, 18, 19)">'
                         Article += ReviewsChildList[k]
-                        Article += '</strong></span></p>\n'
+                        Article += '</span></p>\n'
                 Article += '<br>'
             
             # 每隔四篇作品插入一张图片，季度获奖不需要插入图片
@@ -214,7 +261,7 @@ class GzhHandler(QObject):
         url = url_list[1] % (self.AppId, self.AppSecret)
         result = json.loads(requests.post(url).text)
         if "access_token" in result:
-            self.AccessToken = result["access_token"]
+            self.access_token = result["access_token"]
             return "True"
         else:
             return result["errmsg"]
@@ -223,7 +270,7 @@ class GzhHandler(QObject):
     # 入口参数：图片路径
     # 返回值：图片的Id和Url
     def uploadImage(self, ImagePath):
-        url = url_list[2] % self.AccessToken
+        url = url_list[2] % self.access_token
         files = {'media': open('{}'.format(ImagePath), 'rb')}
         response = requests.post(url, files=files).text
         ImgId = json.loads(response)["media_id"]
@@ -234,7 +281,7 @@ class GzhHandler(QObject):
     # 入口参数：图片名称、图片数量、偏移量
     # 返回值：图片的Id和Url
     def getImageByName(self, name, count, offset=0):
-        url = url_list[3] % self.AccessToken
+        url = url_list[3] % self.access_token
         data = {"type":"image", "offset":offset, "count":count}
         response = requests.post(url, json.dumps(data)).text
         ImgJsonList = json.loads(response)["item"]
@@ -248,7 +295,7 @@ class GzhHandler(QObject):
     def getImageListByCount(self, count, offset=0):
         ImgIdList = []
         ImgUrlList = []
-        url = url_list[3] % self.AccessToken
+        url = url_list[3] % self.access_token
         data = {"type":"image", "offset":offset, "count":count}
         response = requests.post(url, json.dumps(data)).text
         ImgJsonList = json.loads(response)["item"]
@@ -260,17 +307,17 @@ class GzhHandler(QObject):
     # 功能：开启线程1，上传文章至公众号
     # 入口参数：题目、封面图片、摘要、内容
     # 返回值：无
-    def UploadArticle(self, title, cover, digest, content):
+    def uploadArticle(self, title, cover, digest, content):
         CoverImgId, url = self.uploadImage(cover)
-        self.thread_1 = Thread_1(CoverImgId,title,digest,content,self.AccessToken)
+        self.thread_1 = Thread_1(CoverImgId,title,digest,content,self.access_token)
         self.thread_1.signal.connect(self.UploadFinish)
         self.thread_1.start()
     
     # 功能：开启线程2，生成html预览文件
     # 入口参数：图片关键字、模板、题目列表、内容列表、评语列表、注释列表、诗/词/曲
     # 返回值：无
-    def GenHtmlFile(self,KeyWord,Category,Template,TitleList,ContentList,ReviewsList,CommentList,AuthorList,AddressList,Profile):
-        self.thread_2 = Thread_2(KeyWord,Category,Template,TitleList,ContentList,ReviewsList,CommentList,AuthorList,AddressList,Profile)
+    def generateHtml(self, article):
+        self.thread_2 = Thread_2(article)
         self.thread_2.signal.connect(self.PreviewFinish)
         self.thread_2.start()
     

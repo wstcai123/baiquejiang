@@ -23,11 +23,24 @@ class ErrorType(Enum):
     NoCheckFormat = 6
     FileFormatError = 7
 
+class Article():
+    def __init__(self):
+        self.cate = ""
+        self.keyword = ""
+        self.Profile = ""
+        self.template = ""
+        self.titles = []
+        self.authors = []
+        self.reviews = []
+        self.contents = []
+        self.comments = []
+        self.addresses = [] 
+
 def DeleteNumber(text):
     remove_chars = '[0-9’!"#$%&\'()*+,-./:;<=>?@，。?★、…【】《》？“”‘’！[\\]^_`{|}~]+'
     return re.sub(remove_chars, '', text)    
 
-class BaiQue(QMainWindow, Ui_MainWindow):
+class BaiqueApp(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
         AppId = "wx38330ee81eefe3da"
@@ -60,7 +73,7 @@ class BaiQue(QMainWindow, Ui_MainWindow):
         self.ReviewerList = [] # 评委列表      
         self.textEdit_4.setText("评语的默认正则表达式为：..+评:.*|..+评：.*|【.+评】.*")
     
-    # 接受GzhHandler的返回结果，准备标题、摘要，调用GzhHandler.UploadArticle
+    # 接受GzhHandler的返回结果，准备标题、摘要，调用GzhHandler.uploadArticle
     @pyqtSlot(str)
     def PreviewFinish(self, Article):
         self.textEdit_4.setText("预览已生成，请点击preview.html查看！")
@@ -68,13 +81,14 @@ class BaiQue(QMainWindow, Ui_MainWindow):
         Year = str(self.spinBox_2.value())
         Month = str(self.spinBox_3.value())
         Quarter = self.comboBox_9.currentText()
+        Category = "词"
 
         # 合成标题和摘要
         if self.Template == "个人专辑":
             title = "白雀奖 || XXX诗词曲作品专辑"
             digest = self.Profile[:100] # 摘要限制字数
         elif self.Template == "月度入围":
-            title = "白雀奖 || 20"+Year+"年第"+Quarter+"季度"+Month+"月份"+Category+"部入围作品及点评"
+            title = f"白雀奖 || 20{Year}年第{Quarter}季度{Month}月份{Category}部入围作品及点评"
             digest = "本期评委："
             for Reviewer in self.ReviewerList:
                 digest += Reviewer.replace("评","")+"，"
@@ -85,7 +99,7 @@ class BaiQue(QMainWindow, Ui_MainWindow):
             for Reviewer in self.ReviewerList:
                 digest += Reviewer.replace("评","")+"，"
         
-        self.gzh.UploadArticle(title,"cover.jpg",digest,self.Article)
+        self.gzh.uploadArticle(title,"cover.jpg",digest,self.Article)
     
     # 接受GzhHandler的返回结果，在窗口打印信息
     @pyqtSlot(str)
@@ -167,6 +181,17 @@ class BaiQue(QMainWindow, Ui_MainWindow):
         result = ErrorType.NoError
         Keyword = self.lineEdit_3.text()
         Category = self.comboBox_8.currentText()
+        article = Article()
+        article.cate = Category
+        article.keyword = ""
+        article.profile = self.Profile
+        article.template = self.Template
+        article.titles = self.TitleList
+        article.authors = self.AuthorList
+        article.reviews = self.ReviewsList
+        article.contents = self.ContentList
+        article.comments = self.CommentList
+        article.addresses = self.AddressList
         
         if result == ErrorType.NoError and self.File == "":
             result = ErrorType.NoFile
@@ -198,7 +223,7 @@ class BaiQue(QMainWindow, Ui_MainWindow):
             self.textEdit_4.setText("请添加封面图片！")
         if result == ErrorType.NoError:
             self.textEdit_4.setText("正在生成文章并上传公众号...")
-            self.gzh.GenHtmlFile(self.Keyword,Category,self.Template,self.TitleList,self.ContentList,self.ReviewsList,self.CommentList,self.AuthorList,self.AddressList,self.Profile)
+            self.gzh.generateHtml(article)
     
     # 检查奖状文章格式
     def CheckDocxFormat_1(self):
@@ -460,6 +485,6 @@ class BaiQue(QMainWindow, Ui_MainWindow):
 
 if __name__ == '__main__':
   app = QApplication(sys.argv)
-  bq = BaiQue()
-  bq.show()
+  baique = BaiqueApp()
+  baique.show()
   sys.exit(app.exec_())
